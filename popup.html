@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="title-row">
+      <h1>Tab Sweeper</h1>
+      <label class="switch" title="Turn auto-closing on or off">
+        <input type="checkbox" id="enabled" />
+        <span class="slider"></span>
+      </label>
+    </div>
+    <p class="stats"><span id="count">0</span> tabs closed so far</p>
+  </header>
+
+  <main>
+    <h2 class="section-label">Built-in patterns</h2>
+    <ul id="default-list"></ul>
+
+    <h2 class="section-label">Your patterns</h2>
+    <div class="add-row">
+      <input type="text" id="pattern-input" placeholder="*doubleclick.net*  or a regex" spellcheck="false" />
+      <button id="add-btn" title="Add pattern">Add</button>
+    </div>
+    <label class="regex-toggle">
+      <input type="checkbox" id="is-regex" />
+      Treat as regular expression
+    </label>
+    <p class="hint" id="hint">Patterns match the whole URL; <code>*</code> matches anything. Example: <code>*://*.reddit.com/*</code></p>
+
+    <ul id="pattern-list"></ul>
+    <p id="empty-state" class="empty">No patterns yet. Add one above — matching tabs will close automatically.</p>
+  </main>
+
+  <footer>
+    <label class="option">
+      <input type="checkbox" id="skip-pinned" />
+      Don't close pinned tabs
+    </label>
+    <button id="sweep-btn" title="Close all currently open tabs that match">Sweep open tabs now</button>
+  </footer>
+
+  <script src="defaults.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
