@@ -1,0 +1,102 @@
+name: Release & publish to Chrome Web Store
+
+# Runs on every tag push:
+#   1. syncs manifest.json version with the tag (leading "v" stripped)
+#   2. zips the extension
+#   3. creates a GitHub Release with the zip attached
+#   4. uploads and publishes the zip to the Chrome Web Store
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   CHROME_EXTENSION_ID   — ID of the extension in the Chrome Web Store
+#   CHROME_CLIENT_ID      — Google Cloud OAuth client ID (Chrome Web Store API)
+#   CHROME_CLIENT_SECRET  — Google Cloud OAuth client secret
+#   CHROME_REFRESH_TOKEN  — OAuth refresh token with the chromewebstore scope
+#
+# Tag names should look like v1.0.1 or 1.0.1 (Chrome requires a dotted
+# numeric version of up to 4 segments).
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync manifest version with tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" '.version = $v' manifest.json > manifest.tmp.json
+          mv manifest.tmp.json manifest.json
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Package extension
+        run: |
+          mkdir -p dist
+          zip -r "dist/tab-sweeper-${VERSION}.zip" \
+            manifest.json background.js defaults.js \
+            popup.html popup.css popup.js icons \
+            -x "*.DS_Store"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/tab-sweeper-${VERSION}.zip" \
+            --title "Tab Sweeper $GITHUB_REF_NAME" \
+            --generate-notes
+
+      - name: Get Google OAuth access token
+        id: auth
+        env:
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          TOKEN=$(curl -fsS https://oauth2.googleapis.com/token \
+            -d "client_id=${CHROME_CLIENT_ID}" \
+            -d "client_secret=${CHROME_CLIENT_SECRET}" \
+            -d "refresh_token=${CHROME_REFRESH_TOKEN}" \
+            -d "grant_type=refresh_token" | jq -r .access_token)
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "Failed to obtain access token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Chrome Web Store
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X PUT \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "x-goog-api-version: 2" \
+            -T "dist/tab-sweeper-${VERSION}.zip" \
+            "https://www.googleapis.com/upload/chromewebstore/v1.1/items/${CHROME_EXTENSION_ID}" \
+            | tee upload.json
+          jq -e '.uploadState == "SUCCESS"' upload.json >/dev/null
+
+      - name: Publish on Chrome Web Store
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "x-goog-api-version: 2" \
+            -H "Content-Length: 0" \
+            "https://www.googleapis.com/chromewebstore/v1.1/items/${CHROME_EXTENSION_ID}/publish" \
+            | tee publish.json
+          jq -e '.status[0] == "OK" or .status[0] == "ITEM_PENDING_REVIEW"' publish.json >/dev/null
